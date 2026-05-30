@@ -34,10 +34,10 @@
   .cache-info strong { color: var(--text); }
   .cache-info .stale { color: var(--amber-text); }
   .cache-info .fresh { color: var(--accent); }
-  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 2rem; }
+  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 2rem; }
   .metric { background: var(--surface); padding: 1.25rem 1.5rem; }
   .metric-label { font-size: 10px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
-  .metric-value { font-size: 28px; font-weight: 300; font-family: var(--font-mono); }
+  .metric-value { font-size: 24px; font-weight: 300; font-family: var(--font-mono); }
   .metric-value.accent { color: var(--accent); }
   .progress-section { margin-bottom: 2rem; }
   .stage-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -72,7 +72,7 @@
   .last-run { font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
   .idle-state { border: 1px dashed var(--border); border-radius: 6px; padding: 4rem 2rem; text-align: center; }
   .idle-title { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-  .idle-sub { font-size: 12px; color: var(--muted); opacity: 0.6; }
+  .idle-sub { font-size: 12px; color: var(--muted); opacity: 0.6; line-height: 1.8; }
   @media (max-width: 768px) {
     .metrics { grid-template-columns: repeat(2, 1fr); }
     .main { padding: 1rem; }
@@ -102,15 +102,16 @@
   </div>
   <div class="metrics">
     <div class="metric"><div class="metric-label">Tickers loaded</div><div class="metric-value" id="mTotal">—</div></div>
-    <div class="metric"><div class="metric-label">After mkt cap filter</div><div class="metric-value" id="mMktCap">—</div></div>
-    <div class="metric"><div class="metric-label">After price filter</div><div class="metric-value" id="mPrice">—</div></div>
+    <div class="metric"><div class="metric-label">Pass 52wk filter</div><div class="metric-value" id="mPrice">—</div></div>
+    <div class="metric"><div class="metric-label">Pass mkt cap filter</div><div class="metric-value" id="mMktCap">—</div></div>
+    <div class="metric"><div class="metric-label">FMP calls used</div><div class="metric-value" id="mFmp">—</div></div>
     <div class="metric"><div class="metric-label">Final ranked</div><div class="metric-value accent" id="mFinal">—</div></div>
   </div>
   <div class="progress-section" id="progressSection" style="display:none;">
     <div class="stage-row">
       <span class="stage-pill" id="pill1">01 / tickers</span>
-      <span class="stage-pill" id="pill2">02 / fetch quotes</span>
-      <span class="stage-pill" id="pill3">03 / filter</span>
+      <span class="stage-pill" id="pill2">02 / 52wk scan</span>
+      <span class="stage-pill" id="pill3">03 / mkt cap (FMP)</span>
       <span class="stage-pill" id="pill4">04 / rank</span>
     </div>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -121,7 +122,7 @@
   </div>
   <div id="idleState" class="idle-state">
     <div class="idle-title">Ready to scan the US market</div>
-    <div class="idle-sub">NYSE + NASDAQ + AMEX · Live quotes · 3 filters · Ranked by momentum</div>
+    <div class="idle-sub">NYSE + NASDAQ + AMEX · ~8,000 tickers<br>Yahoo Finance → 52wk price filter · FMP → market cap filter · Ranked by range ratio</div>
   </div>
   <div id="resultsWrap" style="display:none;">
     <div class="table-wrap">
@@ -130,7 +131,8 @@
         <div class="filter-chips">
           <span class="chip">mkt cap $250M–$2B</span>
           <span class="chip">price > 0.9× 52wk high</span>
-          <span class="chip">52wk range ratio ↓</span>
+          <span class="chip">price < 52wk high</span>
+          <span class="chip">range ratio ↓</span>
         </div>
       </div>
       <div style="overflow-x:auto;">
@@ -157,217 +159,196 @@
 </div>
 
 <script>
-const WORKER = 'https://holy-mouse-1e7c.akshat-sirohiya.workers.dev';
+const WORKER    = 'https://holy-mouse-1e7c.akshat-sirohiya.workers.dev';
+const FMP_KEY   = 'rZRMp3vyxh1WQDn2EtaoZoQYMjKqCUIA';
 const CACHE_KEY = 'momentum_tickers_v2';
-const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const BATCH_SIZE = 8;
-const BATCH_DELAY_MS = 150;
-let allResults = [];
+const CACHE_AGE = 30 * 24 * 60 * 60 * 1000;
+const BATCH_YH  = 8;
+const BATCH_FMP = 50;
+const DELAY_MS  = 120;
+let allResults  = [];
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function workerFetch(url) {
+async function wFetch(url) {
   const res = await fetch(`${WORKER}?url=${encodeURIComponent(url)}`);
-  if (!res.ok) throw new Error(`Worker returned ${res.status}`);
-  return await res.text();
+  if (!res.ok) throw new Error(`Worker ${res.status}`);
+  return res.text();
+}
+
+async function fmpFetch(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`FMP ${res.status}`);
+  return res.json();
 }
 
 function loadCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    return (obj.tickers && obj.timestamp) ? obj : null;
-  } catch { return null; }
+  try { const o = JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); return (o?.tickers&&o?.timestamp)?o:null; } catch { return null; }
 }
-
-function saveCache(tickers) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ tickers, timestamp: Date.now() })); }
-  catch(e) { console.warn('Cache save failed', e); }
-}
-
-function cacheAgeLabel(ts) {
-  const days = Math.floor((Date.now() - ts) / 86400000);
-  return days === 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`;
-}
+function saveCache(t) { try { localStorage.setItem(CACHE_KEY, JSON.stringify({tickers:t,timestamp:Date.now()})); } catch {} }
+function ageLabel(ts) { const d=Math.floor((Date.now()-ts)/86400000); return d===0?'today':d===1?'1 day ago':`${d} days ago`; }
 
 function updateCacheBar() {
-  const cache = loadCache();
-  const info = document.getElementById('cacheInfo');
-  const btn = document.getElementById('refreshTickersBtn');
-  if (!cache) {
-    info.innerHTML = 'No ticker cache — will download on first run <span style="opacity:0.6">(cached 30 days)</span>';
-    btn.style.display = 'none';
-  } else {
-    const isStale = (Date.now() - cache.timestamp) > CACHE_MAX_AGE_MS;
-    const cls = isStale ? 'stale' : 'fresh';
-    const note = isStale ? ' <span class="stale">— will refresh on next run</span>' : '';
-    info.innerHTML = `Ticker cache: <strong>${cache.tickers.length.toLocaleString()} tickers</strong> · downloaded <span class="${cls}">${cacheAgeLabel(cache.timestamp)}</span>${note}`;
-    btn.style.display = 'inline-flex';
+  const c=loadCache(), info=document.getElementById('cacheInfo'), btn=document.getElementById('refreshTickersBtn');
+  if (!c) { info.innerHTML='No ticker cache — will download on first run <span style="opacity:.6">(cached 30 days)</span>'; btn.style.display='none'; }
+  else {
+    const stale=Date.now()-c.timestamp>CACHE_AGE;
+    info.innerHTML=`Ticker cache: <strong>${c.tickers.length.toLocaleString()} tickers</strong> · downloaded <span class="${stale?'stale':'fresh'}">${ageLabel(c.timestamp)}</span>${stale?' <span class="stale">— will refresh on next run</span>':''}`;
+    btn.style.display='inline-flex';
   }
 }
-
 function refreshTickers() { localStorage.removeItem(CACHE_KEY); updateCacheBar(); }
 
 async function getTickers() {
-  const cache = loadCache();
-  if (cache && (Date.now() - cache.timestamp) < CACHE_MAX_AGE_MS) return cache.tickers;
-  setStage(1);
-  setProgressLabel('Downloading ticker list from NASDAQ…');
-  const sources = [
-    'https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt',
-    'https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt'
-  ];
-  let tickers = [];
-  for (const url of sources) {
-    const text = await workerFetch(url);
-    text.split('\n').forEach((line, idx) => {
-      if (idx === 0 || !line.trim()) return;
-      const parts = line.split('|');
-      const sym = parts[0]?.trim();
-      const name = parts[1]?.trim() || '';
-      if (!sym || sym.length > 5 || /[ $.]/.test(sym)) return;
+  const c=loadCache();
+  if (c&&Date.now()-c.timestamp<CACHE_AGE) return c.tickers;
+  setStage(1); setLbl('Downloading ticker list from NASDAQ…');
+  let tickers=[];
+  for (const url of ['https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt','https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt']) {
+    const text=await wFetch(url);
+    text.split('\n').forEach((line,i)=>{
+      if (i===0||!line.trim()) return;
+      const p=line.split('|'), sym=p[0]?.trim(), name=p[1]?.trim()||'';
+      if (!sym||sym.length>5||/[ $.]/.test(sym)) return;
       if (/file creation|symbol/i.test(line)) return;
-      tickers.push({ ticker: sym, name });
+      tickers.push({ticker:sym,name});
     });
   }
-  saveCache(tickers);
-  updateCacheBar();
-  return tickers;
+  saveCache(tickers); updateCacheBar(); return tickers;
 }
 
-async function fetchQuote(ticker) {
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=regularMarketPrice,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
+async function fetchYahoo(ticker) {
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`;
   try {
-    const text = await workerFetch(url);
-    const result = JSON.parse(text)?.quoteResponse?.result?.[0];
-    if (!result) return null;
-    const { regularMarketPrice: price, marketCap: mktCap, fiftyTwoWeekHigh: high52, fiftyTwoWeekLow: low52 } = result;
-    if (!price || !mktCap || !high52 || !low52) return null;
-    return { price, mktCap, high52, low52 };
+    const meta=JSON.parse(await wFetch(url))?.chart?.result?.[0]?.meta;
+    if (!meta) return null;
+    const {regularMarketPrice:price,fiftyTwoWeekHigh:high52,fiftyTwoWeekLow:low52}=meta;
+    if (!price||!high52||!low52) return null;
+    return {price,high52,low52};
   } catch { return null; }
 }
 
+async function fetchFmpBatch(tickers) {
+  const url=`https://financialmodelingprep.com/api/v3/quote/${tickers.join(',')}?apikey=${FMP_KEY}`;
+  try {
+    const data=await fmpFetch(url);
+    if (!Array.isArray(data)) return {};
+    const map={};
+    data.forEach(d=>{ if (d.symbol&&d.marketCap) map[d.symbol]=d.marketCap; });
+    return map;
+  } catch { return {}; }
+}
+
 async function startScreener() {
-  document.getElementById('runBtn').disabled = true;
-  document.getElementById('exportBtn').disabled = true;
-  document.getElementById('errorBar').style.display = 'none';
-  document.getElementById('idleState').style.display = 'none';
-  document.getElementById('resultsWrap').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'none';
-  document.getElementById('progressSection').style.display = 'block';
-  allResults = [];
+  document.getElementById('runBtn').disabled=true;
+  document.getElementById('exportBtn').disabled=true;
+  document.getElementById('errorBar').style.display='none';
+  document.getElementById('idleState').style.display='none';
+  document.getElementById('resultsWrap').style.display='none';
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('progressSection').style.display='block';
+  allResults=[];
 
   try {
     let tickerList;
-    try { tickerList = await getTickers(); }
-    catch(e) {
-      showError(`Could not fetch ticker list.<br>${e.message}<br><br>Check your Cloudflare Worker is deployed correctly.`);
-      reset(); return;
-    }
+    try { tickerList=await getTickers(); }
+    catch(e) { showErr(`Ticker fetch failed: ${e.message}`); reset(); return; }
+    document.getElementById('mTotal').textContent=tickerList.length.toLocaleString();
+    setPct(5); setStage(2);
 
-    document.getElementById('mTotal').textContent = tickerList.length.toLocaleString();
-    setProgress(5); setStage(2);
-
-    let done = 0, passedMktCap = 0, passedPrice = 0;
-
-    for (let i = 0; i < tickerList.length; i += BATCH_SIZE) {
-      const batch = tickerList.slice(i, i + BATCH_SIZE);
-      const quotes = await Promise.all(batch.map(t => fetchQuote(t.ticker)));
-      quotes.forEach((q, j) => {
+    setLbl('Scanning 52wk price data via Yahoo…');
+    let done=0; const pricePassers=[];
+    for (let i=0;i<tickerList.length;i+=BATCH_YH) {
+      const batch=tickerList.slice(i,i+BATCH_YH);
+      const quotes=await Promise.all(batch.map(t=>fetchYahoo(t.ticker)));
+      quotes.forEach((q,j)=>{
         done++;
         if (!q) return;
-        const mktCapM = q.mktCap / 1e6;
-        if (mktCapM < 250 || mktCapM > 2000) return;
-        passedMktCap++;
-        if (q.price <= q.high52 * 0.9 || q.price >= q.high52) return;
-        passedPrice++;
-        allResults.push({ ...batch[j], ...q, ratio: q.low52 / q.high52 });
+        const {price,high52,low52}=q;
+        if (price<=high52*0.9||price>=high52) return;
+        pricePassers.push({...batch[j],price,high52,low52,ratio:low52/high52});
       });
-      setProgress(5 + Math.round((done / tickerList.length) * 88));
-      document.getElementById('progressCount').textContent = `${done.toLocaleString()} / ${tickerList.length.toLocaleString()}`;
-      setProgressLabel(`Scanning… ${passedPrice} passing so far`);
-      document.getElementById('mMktCap').textContent = passedMktCap.toLocaleString();
-      document.getElementById('mPrice').textContent = passedPrice.toLocaleString();
-      await sleep(BATCH_DELAY_MS);
+      setPct(5+Math.round((done/tickerList.length)*55));
+      document.getElementById('progressCount').textContent=`${done.toLocaleString()} / ${tickerList.length.toLocaleString()}`;
+      setLbl(`52wk scan… ${pricePassers.length} passing so far`);
+      document.getElementById('mPrice').textContent=pricePassers.length.toLocaleString();
+      await sleep(DELAY_MS);
     }
 
-    setStage(3); setStage(4);
-    allResults.sort((a, b) => b.ratio - a.ratio);
-    setProgress(100);
-    document.getElementById('mFinal').textContent = allResults.length.toLocaleString();
-    setProgressLabel('Done.');
+    setStage(3); setLbl(`Fetching market cap for ${pricePassers.length} survivors via FMP…`);
+    document.getElementById('progressCount').textContent='';
+    let fmpCalls=0, mktCapPassers=0;
+    for (let i=0;i<pricePassers.length;i+=BATCH_FMP) {
+      const batch=pricePassers.slice(i,i+BATCH_FMP);
+      const capMap=await fetchFmpBatch(batch.map(t=>t.ticker));
+      fmpCalls++;
+      batch.forEach(t=>{
+        const mktCap=capMap[t.ticker];
+        if (!mktCap) return;
+        const mktCapM=mktCap/1e6;
+        if (mktCapM<250||mktCapM>2000) return;
+        mktCapPassers++;
+        allResults.push({...t,mktCap});
+      });
+      setPct(60+Math.round(((i+BATCH_FMP)/pricePassers.length)*30));
+      document.getElementById('mFmp').textContent=fmpCalls;
+      document.getElementById('mMktCap').textContent=mktCapPassers.toLocaleString();
+      setLbl(`Market cap filter… ${mktCapPassers} passing`);
+      await sleep(200);
+    }
+
+    setStage(4);
+    allResults.sort((a,b)=>b.ratio-a.ratio);
+    setPct(100);
+    document.getElementById('mFinal').textContent=allResults.length.toLocaleString();
+    setLbl('Done.');
     await sleep(400);
-    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('progressSection').style.display='none';
 
     if (!allResults.length) {
-      document.getElementById('emptyState').style.display = 'block';
+      document.getElementById('emptyState').style.display='block';
     } else {
       renderTable(allResults);
-      document.getElementById('resultsWrap').style.display = 'block';
-      document.getElementById('exportBtn').disabled = false;
+      document.getElementById('resultsWrap').style.display='block';
+      document.getElementById('exportBtn').disabled=false;
     }
-
-    const now = new Date();
-    document.getElementById('lastRun').textContent =
-      'last run ' + now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-      ' ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-  } catch(e) {
-    showError('Unexpected error: ' + e.message);
-    reset();
-  }
-  document.getElementById('runBtn').disabled = false;
+    const now=new Date();
+    document.getElementById('lastRun').textContent='last run '+now.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  } catch(e) { showErr('Unexpected error: '+e.message); reset(); }
+  document.getElementById('runBtn').disabled=false;
 }
 
-function setStage(n) {
-  for (let i = 1; i <= 4; i++)
-    document.getElementById('pill' + i).className = 'stage-pill' + (i === n ? ' active' : i < n ? ' done' : '');
-}
-function setProgress(pct) { document.getElementById('progressFill').style.width = pct + '%'; }
-function setProgressLabel(t) { document.getElementById('progressLabel').textContent = t; }
-function showError(msg) { const b = document.getElementById('errorBar'); b.innerHTML = msg; b.style.display = 'block'; }
-function reset() {
-  document.getElementById('runBtn').disabled = false;
-  document.getElementById('progressSection').style.display = 'none';
-  document.getElementById('idleState').style.display = 'block';
-}
+function setStage(n) { for(let i=1;i<=4;i++) document.getElementById('pill'+i).className='stage-pill'+(i===n?' active':i<n?' done':''); }
+function setPct(p) { document.getElementById('progressFill').style.width=p+'%'; }
+function setLbl(t) { document.getElementById('progressLabel').textContent=t; }
+function showErr(msg) { const b=document.getElementById('errorBar'); b.innerHTML=msg; b.style.display='block'; }
+function reset() { document.getElementById('runBtn').disabled=false; document.getElementById('progressSection').style.display='none'; document.getElementById('idleState').style.display='block'; }
 
 function renderTable(rows) {
-  const tbody = document.getElementById('resultsBody');
-  tbody.innerHTML = '';
-  rows.forEach((r, i) => {
-    const rank = i + 1;
-    const pct = ((r.price - r.high52) / r.high52 * 100).toFixed(1);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><span class="rank ${rank <= 10 ? 'top' : ''}">${rank}</span></td>
+  const tbody=document.getElementById('resultsBody'); tbody.innerHTML='';
+  rows.forEach((r,i)=>{
+    const rank=i+1, pct=((r.price-r.high52)/r.high52*100).toFixed(1), tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><span class="rank ${rank<=10?'top':''}">${rank}</span></td>
       <td><a class="ticker-link" href="https://finance.yahoo.com/quote/${r.ticker}" target="_blank">${r.ticker}</a></td>
       <td><span class="company-name" title="${r.name}">${r.name}</span></td>
       <td><span class="num">$${r.price.toFixed(2)}</span></td>
-      <td><span class="num">$${(r.mktCap / 1e9).toFixed(2)}B</span></td>
+      <td><span class="num">$${(r.mktCap/1e9).toFixed(2)}B</span></td>
       <td><span class="num">$${r.high52.toFixed(2)}</span></td>
       <td><span class="num">$${r.low52.toFixed(2)}</span></td>
-      <td><span class="badge badge-green">${(r.ratio * 100).toFixed(1)}%</span></td>
-      <td><span class="badge badge-amber">${pct}%</span></td>
-    `;
+      <td><span class="badge badge-green">${(r.ratio*100).toFixed(1)}%</span></td>
+      <td><span class="badge badge-amber">${pct}%</span></td>`;
     tbody.appendChild(tr);
   });
 }
 
 function exportCSV() {
   if (!allResults.length) return;
-  const rows = [['Rank','Ticker','Company','Price','Market Cap','52wk High','52wk Low','Range Ratio','% from High']];
-  allResults.forEach((r, i) => rows.push([
-    i + 1, r.ticker, `"${r.name}"`,
-    r.price.toFixed(2), (r.mktCap / 1e9).toFixed(2) + 'B',
-    r.high52.toFixed(2), r.low52.toFixed(2),
-    (r.ratio * 100).toFixed(1) + '%',
-    ((r.price - r.high52) / r.high52 * 100).toFixed(1) + '%'
-  ]));
-  const a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(rows.map(r => r.join(',')).join('\n'));
-  a.download = `momentum_${new Date().toISOString().slice(0,10)}.csv`;
+  const rows=[['Rank','Ticker','Company','Price','Market Cap','52wk High','52wk Low','Range Ratio','% from High']];
+  allResults.forEach((r,i)=>rows.push([i+1,r.ticker,`"${r.name}"`,r.price.toFixed(2),(r.mktCap/1e9).toFixed(2)+'B',r.high52.toFixed(2),r.low52.toFixed(2),(r.ratio*100).toFixed(1)+'%',((r.price-r.high52)/r.high52*100).toFixed(1)+'%']));
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));
+  a.download=`momentum_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
 
