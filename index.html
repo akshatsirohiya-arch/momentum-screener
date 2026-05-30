@@ -143,7 +143,7 @@
         <span class="table-title">Ranked results</span>
         <div class="filter-chips">
           <span class="chip">mkt cap $250M–$2B</span>
-          <span class="chip">price &gt; 0.9× 52wk high</span>
+          <span class="chip">price > 0.9× 52wk high</span>
           <span class="chip">52wk range ratio ↓</span>
         </div>
       </div>
@@ -175,7 +175,6 @@
 let allResults = [];
 let activeProxy = null;
 
-// Three proxies — tried in order until one works
 const PROXIES = [
   {
     name: 'corsproxy.io',
@@ -195,13 +194,11 @@ const PROXIES = [
 ];
 
 async function fetchViaProxy(url) {
-  // If we already found a working proxy, use it directly
   if (activeProxy !== null) {
     const p = PROXIES[activeProxy];
     const res = await fetch(p.wrap(url), { signal: AbortSignal.timeout(12000) });
     if (res.ok) return await p.extract(res);
   }
-  // Otherwise try each proxy in order
   for (let i = 0; i < PROXIES.length; i++) {
     try {
       const p = PROXIES[i];
@@ -292,7 +289,7 @@ async function startScreener() {
         `Could not fetch ticker list.<br><br>` +
         `${e.message}<br><br>` +
         `<strong>Tip:</strong> All three CORS proxies (corsproxy.io, allorigins.win, codetabs.com) appear to be down or blocked. ` +
-        `Wait a few minutes and try again. This is a known limitation of free browser-based proxies.`
+        `Wait a few minutes and try again.`
       );
       document.getElementById('runBtn').disabled = false;
       document.getElementById('progressSection').style.display = 'none';
