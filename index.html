@@ -17,12 +17,10 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; min-height: 100vh; }
-
   .topbar { border-bottom: 1px solid var(--border); padding: 0 2rem; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--bg); z-index: 100; }
   .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--accent); letter-spacing: 0.05em; }
   .logo-sub { font-size: 11px; color: var(--muted); font-family: var(--font-mono); margin-left: 12px; }
   .topbar-right { display: flex; align-items: center; gap: 10px; }
-
   .btn { padding: 7px 16px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; cursor: pointer; font-size: 12px; font-family: var(--font-mono); color: var(--text); display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; }
   .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -30,21 +28,17 @@
   .btn-primary:hover:not(:disabled) { background: #86efac; border-color: #86efac; color: #0a1a0e; }
   .btn-primary:disabled { background: var(--accent-dim); color: var(--muted); border-color: var(--accent-dim); }
   .btn-sm { padding: 4px 10px; font-size: 11px; }
-
   .main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-
   .ticker-cache-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .cache-info { font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
   .cache-info strong { color: var(--text); }
   .cache-info .stale { color: var(--amber-text); }
   .cache-info .fresh { color: var(--accent); }
-
   .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 2rem; }
   .metric { background: var(--surface); padding: 1.25rem 1.5rem; }
   .metric-label { font-size: 10px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
   .metric-value { font-size: 28px; font-weight: 300; font-family: var(--font-mono); }
   .metric-value.accent { color: var(--accent); }
-
   .progress-section { margin-bottom: 2rem; }
   .stage-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .stage-pill { font-size: 11px; font-family: var(--font-mono); padding: 4px 12px; border-radius: 2px; border: 1px solid var(--border); color: var(--muted); transition: all 0.2s; }
@@ -53,9 +47,6 @@
   .progress-track { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; margin-bottom: 8px; }
   .progress-fill { height: 2px; background: var(--accent); width: 0%; transition: width 0.15s; }
   .progress-meta { display: flex; justify-content: space-between; font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
-  .proxy-status { font-size: 11px; font-family: var(--font-mono); color: var(--muted); margin-bottom: 8px; }
-  .proxy-status .ok { color: var(--accent); }
-
   .table-wrap { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .table-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface); flex-wrap: wrap; gap: 8px; }
   .table-title { font-size: 11px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
@@ -105,19 +96,16 @@
 
 <div class="main">
   <div class="error-bar" id="errorBar"></div>
-
-  <div class="ticker-cache-bar" id="cacheBar">
+  <div class="ticker-cache-bar">
     <div class="cache-info" id="cacheInfo">Checking ticker cache…</div>
     <button class="btn btn-sm" id="refreshTickersBtn" onclick="refreshTickers()" style="display:none;">↻ Refresh tickers</button>
   </div>
-
   <div class="metrics">
     <div class="metric"><div class="metric-label">Tickers loaded</div><div class="metric-value" id="mTotal">—</div></div>
     <div class="metric"><div class="metric-label">After mkt cap filter</div><div class="metric-value" id="mMktCap">—</div></div>
     <div class="metric"><div class="metric-label">After price filter</div><div class="metric-value" id="mPrice">—</div></div>
     <div class="metric"><div class="metric-label">Final ranked</div><div class="metric-value accent" id="mFinal">—</div></div>
   </div>
-
   <div class="progress-section" id="progressSection" style="display:none;">
     <div class="stage-row">
       <span class="stage-pill" id="pill1">01 / tickers</span>
@@ -125,19 +113,16 @@
       <span class="stage-pill" id="pill3">03 / filter</span>
       <span class="stage-pill" id="pill4">04 / rank</span>
     </div>
-    <div class="proxy-status" id="proxyStatus"></div>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <div class="progress-meta">
       <span id="progressLabel">Starting…</span>
       <span id="progressCount"></span>
     </div>
   </div>
-
   <div id="idleState" class="idle-state">
     <div class="idle-title">Ready to scan the US market</div>
     <div class="idle-sub">NYSE + NASDAQ + AMEX · Live quotes · 3 filters · Ranked by momentum</div>
   </div>
-
   <div id="resultsWrap" style="display:none;">
     <div class="table-wrap">
       <div class="table-header">
@@ -168,54 +153,26 @@
       </div>
     </div>
   </div>
-
   <div id="emptyState" class="empty" style="display:none;">no stocks passed all filters this run</div>
 </div>
 
 <script>
-const CACHE_KEY = 'momentum_tickers_v1';
+const WORKER = 'https://holy-mouse-1e7c.akshat-sirohiya.workers.dev';
+const CACHE_KEY = 'momentum_tickers_v2';
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const BATCH_SIZE = 4;
-const BATCH_DELAY_MS = 400;
-const REQ_TIMEOUT_MS = 14000;
-
-const PROXIES = [
-  { name: 'corsproxy.io',   wrap: u => `https://corsproxy.io/?${encodeURIComponent(u)}`,                     parse: t => t },
-  { name: 'allorigins.win', wrap: u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,         parse: t => JSON.parse(t).contents },
-  { name: 'codetabs.com',   wrap: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,   parse: t => t },
-];
-let proxyIndex = 0;
+const BATCH_SIZE = 8;
+const BATCH_DELAY_MS = 150;
 let allResults = [];
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function nextProxy() {
-  const p = PROXIES[proxyIndex % PROXIES.length];
-  proxyIndex++;
-  return p;
+async function workerFetch(url) {
+  const res = await fetch(`${WORKER}?url=${encodeURIComponent(url)}`);
+  if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+  return await res.text();
 }
 
-async function fetchWithRetry(url, attempts = PROXIES.length * 2) {
-  for (let i = 0; i < attempts; i++) {
-    const p = nextProxy();
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), REQ_TIMEOUT_MS);
-      const res = await fetch(p.wrap(url), { signal: controller.signal });
-      clearTimeout(tid);
-      if (res.status === 429) { await sleep(1500 + Math.random() * 1000); continue; }
-      if (!res.ok) continue;
-      const raw = await res.text();
-      const text = p.parse(raw);
-      if (!text || text.length < 5) continue;
-      setProxyStatus(`proxy: <span class="ok">${p.name}</span>`);
-      return text;
-    } catch(e) { await sleep(300); continue; }
-  }
-  throw new Error('All proxies failed. Wait a few minutes and try again.');
-}
-
-function loadTickerCache() {
+function loadCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
@@ -224,9 +181,9 @@ function loadTickerCache() {
   } catch { return null; }
 }
 
-function saveTickerCache(tickers) {
+function saveCache(tickers) {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify({ tickers, timestamp: Date.now() })); }
-  catch(e) { console.warn('Cache save failed:', e); }
+  catch(e) { console.warn('Cache save failed', e); }
 }
 
 function cacheAgeLabel(ts) {
@@ -235,30 +192,26 @@ function cacheAgeLabel(ts) {
 }
 
 function updateCacheBar() {
-  const cache = loadTickerCache();
+  const cache = loadCache();
   const info = document.getElementById('cacheInfo');
   const btn = document.getElementById('refreshTickersBtn');
   if (!cache) {
-    info.innerHTML = 'No ticker cache — will download on first run <span style="color:var(--muted)">(cached for 30 days)</span>';
+    info.innerHTML = 'No ticker cache — will download on first run <span style="opacity:0.6">(cached 30 days)</span>';
     btn.style.display = 'none';
   } else {
     const isStale = (Date.now() - cache.timestamp) > CACHE_MAX_AGE_MS;
     const cls = isStale ? 'stale' : 'fresh';
-    const note = isStale ? ' <span class="stale">— stale, will refresh on next run</span>' : '';
+    const note = isStale ? ' <span class="stale">— will refresh on next run</span>' : '';
     info.innerHTML = `Ticker cache: <strong>${cache.tickers.length.toLocaleString()} tickers</strong> · downloaded <span class="${cls}">${cacheAgeLabel(cache.timestamp)}</span>${note}`;
     btn.style.display = 'inline-flex';
   }
 }
 
-function refreshTickers() {
-  localStorage.removeItem(CACHE_KEY);
-  updateCacheBar();
-}
+function refreshTickers() { localStorage.removeItem(CACHE_KEY); updateCacheBar(); }
 
 async function getTickers() {
-  const cache = loadTickerCache();
+  const cache = loadCache();
   if (cache && (Date.now() - cache.timestamp) < CACHE_MAX_AGE_MS) return cache.tickers;
-
   setStage(1);
   setProgressLabel('Downloading ticker list from NASDAQ…');
   const sources = [
@@ -267,7 +220,7 @@ async function getTickers() {
   ];
   let tickers = [];
   for (const url of sources) {
-    const text = await fetchWithRetry(url);
+    const text = await workerFetch(url);
     text.split('\n').forEach((line, idx) => {
       if (idx === 0 || !line.trim()) return;
       const parts = line.split('|');
@@ -278,7 +231,7 @@ async function getTickers() {
       tickers.push({ ticker: sym, name });
     });
   }
-  saveTickerCache(tickers);
+  saveCache(tickers);
   updateCacheBar();
   return tickers;
 }
@@ -286,7 +239,7 @@ async function getTickers() {
 async function fetchQuote(ticker) {
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=regularMarketPrice,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow`;
   try {
-    const text = await fetchWithRetry(url);
+    const text = await workerFetch(url);
     const result = JSON.parse(text)?.quoteResponse?.result?.[0];
     if (!result) return null;
     const { regularMarketPrice: price, marketCap: mktCap, fiftyTwoWeekHigh: high52, fiftyTwoWeekLow: low52 } = result;
@@ -296,7 +249,6 @@ async function fetchQuote(ticker) {
 }
 
 async function startScreener() {
-  proxyIndex = 0;
   document.getElementById('runBtn').disabled = true;
   document.getElementById('exportBtn').disabled = true;
   document.getElementById('errorBar').style.display = 'none';
@@ -310,7 +262,7 @@ async function startScreener() {
     let tickerList;
     try { tickerList = await getTickers(); }
     catch(e) {
-      showError(`Could not fetch ticker list.<br>${e.message}`);
+      showError(`Could not fetch ticker list.<br>${e.message}<br><br>Check your Cloudflare Worker is deployed correctly.`);
       reset(); return;
     }
 
@@ -322,7 +274,6 @@ async function startScreener() {
     for (let i = 0; i < tickerList.length; i += BATCH_SIZE) {
       const batch = tickerList.slice(i, i + BATCH_SIZE);
       const quotes = await Promise.all(batch.map(t => fetchQuote(t.ticker)));
-
       quotes.forEach((q, j) => {
         done++;
         if (!q) return;
@@ -333,7 +284,6 @@ async function startScreener() {
         passedPrice++;
         allResults.push({ ...batch[j], ...q, ratio: q.low52 / q.high52 });
       });
-
       setProgress(5 + Math.round((done / tickerList.length) * 88));
       document.getElementById('progressCount').textContent = `${done.toLocaleString()} / ${tickerList.length.toLocaleString()}`;
       setProgressLabel(`Scanning… ${passedPrice} passing so far`);
@@ -376,7 +326,6 @@ function setStage(n) {
 }
 function setProgress(pct) { document.getElementById('progressFill').style.width = pct + '%'; }
 function setProgressLabel(t) { document.getElementById('progressLabel').textContent = t; }
-function setProxyStatus(html) { document.getElementById('proxyStatus').innerHTML = html; }
 function showError(msg) { const b = document.getElementById('errorBar'); b.innerHTML = msg; b.style.display = 'block'; }
 function reset() {
   document.getElementById('runBtn').disabled = false;
