@@ -103,8 +103,8 @@
   <div class="metrics">
     <div class="metric"><div class="metric-label">Tickers loaded</div><div class="metric-value" id="mTotal">—</div></div>
     <div class="metric"><div class="metric-label">Pass 52wk filter</div><div class="metric-value" id="mPrice">—</div></div>
-    <div class="metric"><div class="metric-label">Pass mkt cap filter</div><div class="metric-value" id="mMktCap">—</div></div>
     <div class="metric"><div class="metric-label">FMP calls used</div><div class="metric-value" id="mFmp">—</div></div>
+    <div class="metric"><div class="metric-label">Pass mkt cap filter</div><div class="metric-value" id="mMktCap">—</div></div>
     <div class="metric"><div class="metric-label">Final ranked</div><div class="metric-value accent" id="mFinal">—</div></div>
   </div>
   <div class="progress-section" id="progressSection" style="display:none;">
@@ -164,8 +164,9 @@ const FMP_KEY   = 'rZRMp3vyxh1WQDn2EtaoZoQYMjKqCUIA';
 const CACHE_KEY = 'momentum_tickers_v2';
 const CACHE_AGE = 30 * 24 * 60 * 60 * 1000;
 const BATCH_YH  = 8;
-const BATCH_FMP = 50;
-const DELAY_MS  = 120;
+const BATCH_FMP = 5;   // parallel FMP calls per batch
+const DELAY_YH  = 120;
+const DELAY_FMP = 150;
 let allResults  = [];
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -176,10 +177,15 @@ async function wFetch(url) {
   return res.text();
 }
 
-async function fmpFetch(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`FMP ${res.status}`);
-  return res.json();
+async function fetchFmpProfile(ticker) {
+  try {
+    const url = `https://financialmodelingprep.com/stable/profile?symbol=${ticker}&apikey=${FMP_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data[0]) return null;
+    return data[0].marketCap || null;
+  } catch { return null; }
 }
 
 function loadCache() {
@@ -204,7 +210,10 @@ async function getTickers() {
   if (c&&Date.now()-c.timestamp<CACHE_AGE) return c.tickers;
   setStage(1); setLbl('Downloading ticker list from NASDAQ…');
   let tickers=[];
-  for (const url of ['https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt','https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt']) {
+  for (const url of [
+    'https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt',
+    'https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt'
+  ]) {
     const text=await wFetch(url);
     text.split('\n').forEach((line,i)=>{
       if (i===0||!line.trim()) return;
@@ -228,17 +237,6 @@ async function fetchYahoo(ticker) {
   } catch { return null; }
 }
 
-async function fetchFmpBatch(tickers) {
-  const url=`https://financialmodelingprep.com/api/v3/quote/${tickers.join(',')}?apikey=${FMP_KEY}`;
-  try {
-    const data=await fmpFetch(url);
-    if (!Array.isArray(data)) return {};
-    const map={};
-    data.forEach(d=>{ if (d.symbol&&d.marketCap) map[d.symbol]=d.marketCap; });
-    return map;
-  } catch { return {}; }
-}
-
 async function startScreener() {
   document.getElementById('runBtn').disabled=true;
   document.getElementById('exportBtn').disabled=true;
@@ -250,12 +248,14 @@ async function startScreener() {
   allResults=[];
 
   try {
+    // Stage 1: tickers
     let tickerList;
     try { tickerList=await getTickers(); }
     catch(e) { showErr(`Ticker fetch failed: ${e.message}`); reset(); return; }
     document.getElementById('mTotal').textContent=tickerList.length.toLocaleString();
     setPct(5); setStage(2);
 
+    // Stage 2: Yahoo 52wk scan
     setLbl('Scanning 52wk price data via Yahoo…');
     let done=0; const pricePassers=[];
     for (let i=0;i<tickerList.length;i+=BATCH_YH) {
@@ -272,31 +272,34 @@ async function startScreener() {
       document.getElementById('progressCount').textContent=`${done.toLocaleString()} / ${tickerList.length.toLocaleString()}`;
       setLbl(`52wk scan… ${pricePassers.length} passing so far`);
       document.getElementById('mPrice').textContent=pricePassers.length.toLocaleString();
-      await sleep(DELAY_MS);
+      await sleep(DELAY_YH);
     }
 
-    setStage(3); setLbl(`Fetching market cap for ${pricePassers.length} survivors via FMP…`);
+    // Stage 3: FMP market cap — one at a time in small parallel batches
+    setStage(3);
     document.getElementById('progressCount').textContent='';
-    let fmpCalls=0, mktCapPassers=0;
+    setLbl(`Fetching market cap for ${pricePassers.length} stocks via FMP…`);
+    let fmpDone=0, mktCapPassers=0;
+
     for (let i=0;i<pricePassers.length;i+=BATCH_FMP) {
       const batch=pricePassers.slice(i,i+BATCH_FMP);
-      const capMap=await fetchFmpBatch(batch.map(t=>t.ticker));
-      fmpCalls++;
-      batch.forEach(t=>{
-        const mktCap=capMap[t.ticker];
+      const caps=await Promise.all(batch.map(t=>fetchFmpProfile(t.ticker)));
+      caps.forEach((mktCap,j)=>{
+        fmpDone++;
         if (!mktCap) return;
         const mktCapM=mktCap/1e6;
         if (mktCapM<250||mktCapM>2000) return;
         mktCapPassers++;
-        allResults.push({...t,mktCap});
+        allResults.push({...batch[j],mktCap});
       });
-      setPct(60+Math.round(((i+BATCH_FMP)/pricePassers.length)*30));
-      document.getElementById('mFmp').textContent=fmpCalls;
+      setPct(60+Math.round((fmpDone/pricePassers.length)*30));
+      document.getElementById('mFmp').textContent=fmpDone;
       document.getElementById('mMktCap').textContent=mktCapPassers.toLocaleString();
-      setLbl(`Market cap filter… ${mktCapPassers} passing`);
-      await sleep(200);
+      setLbl(`Market cap filter… ${mktCapPassers} passing (${fmpDone}/${pricePassers.length} checked)`);
+      await sleep(DELAY_FMP);
     }
 
+    // Stage 4: rank
     setStage(4);
     allResults.sort((a,b)=>b.ratio-a.ratio);
     setPct(100);
@@ -312,8 +315,10 @@ async function startScreener() {
       document.getElementById('resultsWrap').style.display='block';
       document.getElementById('exportBtn').disabled=false;
     }
+
     const now=new Date();
     document.getElementById('lastRun').textContent='last run '+now.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+
   } catch(e) { showErr('Unexpected error: '+e.message); reset(); }
   document.getElementById('runBtn').disabled=false;
 }
