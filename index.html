@@ -159,15 +159,17 @@
 </div>
 
 <script>
-const WORKER    = 'https://holy-mouse-1e7c.akshat-sirohiya.workers.dev';
-const FMP_KEY   = 'rZRMp3vyxh1WQDn2EtaoZoQYMjKqCUIA';
-const CACHE_KEY = 'momentum_tickers_v2';
-const CACHE_AGE = 30 * 24 * 60 * 60 * 1000;
-const BATCH_YH  = 8;
-const BATCH_FMP = 5;   // parallel FMP calls per batch
-const DELAY_YH  = 120;
-const DELAY_FMP = 150;
-let allResults  = [];
+const WORKER     = 'https://holy-mouse-1e7c.akshat-sirohiya.workers.dev';
+const FMP_KEY    = 'rZRMp3vyxh1WQDn2EtaoZoQYMjKqCUIA';
+const CACHE_KEY  = 'momentum_tickers_v2';
+const CACHE_AGE  = 30 * 24 * 60 * 60 * 1000;
+const BATCH_YH   = 8;
+const BATCH_FMP  = 5;
+const DELAY_YH   = 120;
+const DELAY_FMP  = 150;
+
+let allResults   = [];
+let pricePassers = []; // module-level so both stages share it
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -179,8 +181,7 @@ async function wFetch(url) {
 
 async function fetchFmpProfile(ticker) {
   try {
-    const url = `https://financialmodelingprep.com/stable/profile?symbol=${ticker}&apikey=${FMP_KEY}`;
-    const res = await fetch(url);
+    const res = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${ticker}&apikey=${FMP_KEY}`);
     if (!res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data) || !data[0]) return null;
@@ -246,6 +247,7 @@ async function startScreener() {
   document.getElementById('emptyState').style.display='none';
   document.getElementById('progressSection').style.display='block';
   allResults=[];
+  pricePassers=[];
 
   try {
     // Stage 1: tickers
@@ -257,7 +259,7 @@ async function startScreener() {
 
     // Stage 2: Yahoo 52wk scan
     setLbl('Scanning 52wk price data via Yahoo…');
-    let done=0; const pricePassers=[];
+    let done=0;
     for (let i=0;i<tickerList.length;i+=BATCH_YH) {
       const batch=tickerList.slice(i,i+BATCH_YH);
       const quotes=await Promise.all(batch.map(t=>fetchYahoo(t.ticker)));
@@ -275,7 +277,9 @@ async function startScreener() {
       await sleep(DELAY_YH);
     }
 
-    // Stage 3: FMP market cap — one at a time in small parallel batches
+    console.log('Stage 2 complete. pricePassers:', pricePassers.length);
+
+    // Stage 3: FMP market cap
     setStage(3);
     document.getElementById('progressCount').textContent='';
     setLbl(`Fetching market cap for ${pricePassers.length} stocks via FMP…`);
@@ -288,16 +292,19 @@ async function startScreener() {
         fmpDone++;
         if (!mktCap) return;
         const mktCapM=mktCap/1e6;
+        console.log(batch[j].ticker,'mktCap $M:',mktCapM.toFixed(0),'passes:',mktCapM>=250&&mktCapM<=2000);
         if (mktCapM<250||mktCapM>2000) return;
         mktCapPassers++;
         allResults.push({...batch[j],mktCap});
       });
-      setPct(60+Math.round((fmpDone/pricePassers.length)*30));
+      setPct(60+Math.round((fmpDone/Math.max(pricePassers.length,1))*30));
       document.getElementById('mFmp').textContent=fmpDone;
       document.getElementById('mMktCap').textContent=mktCapPassers.toLocaleString();
       setLbl(`Market cap filter… ${mktCapPassers} passing (${fmpDone}/${pricePassers.length} checked)`);
       await sleep(DELAY_FMP);
     }
+
+    console.log('Stage 3 complete. allResults:', allResults.length);
 
     // Stage 4: rank
     setStage(4);
